@@ -23,7 +23,7 @@ import (
 func Exec() error {
 	flag.Parse()
 
-	fmt.Printf("Running %s go on %s\n", os.Args[0], os.Getenv("GOFILE"))
+	fmt.Println("Generating CLI")
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -33,7 +33,7 @@ func Exec() error {
 	fmt.Printf("  os.Args = %#v\n", os.Args)
 
 	for _, ev := range []string{"GOARCH", "GOOS", "GOFILE", "GOLINE", "GOPACKAGE", "DOLLAR"} {
-		fmt.Printf("%s=%s; ", ev, os.Getenv(ev))
+		fmt.Printf("%s=%q; ", ev, os.Getenv(ev))
 	}
 	fmt.Println()
 
@@ -108,7 +108,6 @@ func Exec() error {
 import (
 	"os"
 	"fmt"
-	"io"
 	"github.com/jnathanh/go-cli-generator/cli"
 	"github.com/jnathanh/go-cli-generator/test/func/climodel"
 )
@@ -156,6 +155,7 @@ func main() {
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
+		fmt.Println("generated code:\n", buf.String())
 		return errors.WithStack(err)
 	}
 
@@ -169,10 +169,12 @@ func main() {
 	}
 
 	fmt.Println("building to test for errors")
-	cmd := exec.Command("go", "build", mainPath)
+	outputPath := path.Join(cmdDirPath, "main")
+	cmd := exec.Command("go", "build", "-o", outputPath, mainPath)
 	stderr := bytes.NewBuffer([]byte{})
 	cmd.Stderr = stderr
 	out, err := cmd.Output()
+	os.Remove(outputPath)
 	fmt.Println(string(out))
 	fmt.Println(stderr)
 
@@ -183,9 +185,11 @@ func main() {
 func FuncToHandlerAndSpec(f *ast.FuncDecl) (handlerCode string, s cli.Spec, err error) {
 	// add func params as cli params
 	for _, p := range f.Type.Params.List {
+		t := cli.ValueType(p.Type.(*ast.Ident).Name)
 		s.Params = append(s.Params, cli.Value{
 			Name:     p.Names[0].Name,
-			TypeName: cli.ValueType(p.Type.(*ast.Ident).Name),
+			TypeName: t,
+			Ordered:  (t != cli.ValueTypeBool),
 		})
 	}
 
