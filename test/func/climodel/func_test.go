@@ -1,6 +1,7 @@
 package climodel_test
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,8 +18,11 @@ func TestGenerateCLIFromFunction(t *testing.T) {
 		// trigger generate
 
 		cmd := exec.Command("go", "generate", "-x", "-run=Greet", ".")
+		stderr := bytes.NewBuffer([]byte{})
+		cmd.Stderr = stderr	
 		out, err := cmd.Output()
 		fmt.Println(string(out))
+		fmt.Println(stderr)
 		require.NoError(t, err)
 	
 		// for k, v := range map[string]string{

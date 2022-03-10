@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 
 	"github.com/jnathanh/go-cli-generator/generate/lib"
 )
@@ -12,7 +13,7 @@ func main() {
 
 	err := lib.Exec()
 	if err != nil {
-		panic(err)
+		fmt.Printf("%+v\n", err)
 	}
 }
 

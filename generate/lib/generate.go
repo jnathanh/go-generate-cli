@@ -202,43 +202,39 @@ func FuncToHandlerAndSpec(f *ast.FuncDecl) (handlerCode string, s cli.Spec, err 
 		}
 	}
 
+	type tmplArgs struct {
+		Params []cli.Value
+		Output cli.Value
+		HandlerName string
+	}
 	// take interface types and type cast
-	handlerCode = `func (inputs cli.Inputs) (output interface{}, err error) {
-		name := inputs.Named["name"].(string)
+	funcTmpl := `func (inputs cli.Inputs) (output interface{}, err error) {
 
-		greeting := climodel.Greet(name)
+		// declare typed params
+		{{ range .Params }}
+			{{ .Name }} := inputs.Named["{{ .Name }}"].({{ .TypeName }})
+		{{ end }}
 
-		return greeting, nil
+		// call model handler with typed params
+		{{ .Output.Name }} := climodel.{{ .HandlerName }}({{ range .Params }}{{ .Name }}{{ end }})
+
+		// return model handler result
+		return {{ .Output.Name }}, nil
 	}`
+		
+	tmpl, err := template.New("test").Parse(funcTmpl)
+	if err != nil {
+		err = errors.WithStack(err)
+		return
+	}
+	b := bytes.NewBuffer([]byte{})
+	err = errors.WithStack(tmpl.Execute(b, tmplArgs{
+		Params: s.Params,
+		Output: s.Output,
+		HandlerName: f.Name.Name,
+	}))
+	handlerCode = b.String()
 
-	// convert inputs to typed inputs
-
-	// call handler with typed inputs
-	// 	template = `package main
-
-	// import (
-	// 	"flag"
-	// 	"io"
-	// 	"os"
-
-	// 	"github.com/jnathanh/go-cli-generator/test/func/cli"
-	// )
-
-	// func main() {
-	// 	flag.Parse()
-
-	// 	name := flag.Arg(0)
-
-	// 	greeting := cli.Greet(name)
-
-	// 	_, err := io.WriteString(os.Stdout, greeting)
-	// 	if err == nil {
-	// 		return
-	// 	}
-
-	// 	flag.Usage()
-	// }
-	// `
 	return
 }
 
