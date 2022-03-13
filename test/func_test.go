@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jnathanh/go-cli-generator/generate/lib"
+	"github.com/jnathanh/go-cli-generator/lib"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

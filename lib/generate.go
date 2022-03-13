@@ -1,7 +1,6 @@
 package lib
 
 import (
-	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
@@ -17,7 +16,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/jnathanh/go-cli-generator/cli"
+	"github.com/jnathanh/go-cli"
 	"github.com/pkg/errors"
 	"golang.org/x/tools/go/packages"
 )
@@ -104,7 +103,7 @@ func Exec(o ExecOptions) error {
 import (
 	"os"
 	"fmt"
-	"github.com/jnathanh/go-cli-generator/cli"
+	"github.com/jnathanh/go-cli"
 	{{ range .PkgPaths }}
 		{{ if . }}"{{ . }}"{{ end }}
 	{{ end }}
@@ -371,31 +370,4 @@ func GetFileAST(packageName, filePath string, pkgs []*packages.Package) (fileSyn
 	}
 
 	return nil, targetPkg, errors.Errorf("found package %q, but did not find %q within it", packageName, filePath)
-}
-
-func LineEndPosition(lineNumber int, path string) (int, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	defer func() {
-		if err := scanner.Err(); err != nil {
-			panic(err)
-		}
-	}()
-
-	currentLine := 1
-	byteCount := 0
-	for scanner.Scan() {
-		byteCount += len(scanner.Bytes()) + 1
-		if currentLine == lineNumber {
-			return byteCount, nil
-		}
-		currentLine++
-	}
-
-	return -1, errors.New("invalid line number")
 }

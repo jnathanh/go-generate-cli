@@ -12,6 +12,7 @@ require (
 )
 
 require (
+	github.com/jnathanh/go-cli v0.0.0-20220313041124-4b25e5e01a5b
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.7.0
 	golang.org/x/tools v0.1.9
