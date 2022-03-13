@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jnathanh/go-cli-generator/lib"
+	"github.com/jnathanh/go-generate-cli/lib"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -76,7 +76,7 @@ func AssertCLIOutput(t *testing.T, stdin io.Reader, cmd []string, expectedOutput
 	t.Helper()
 	c := exec.Command(cmd[0], cmd[1:]...)
 
-	if stdin != nil{
+	if stdin != nil {
 		c.Stdin = stdin
 	}
 

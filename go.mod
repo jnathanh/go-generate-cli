@@ -1,4 +1,4 @@
-module github.com/jnathanh/go-cli-generator
+module github.com/jnathanh/go-generate-cli
 
 go 1.17
 
