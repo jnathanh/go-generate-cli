@@ -19,6 +19,16 @@ go build -o greet .
 # outputs "hello John"
 ```
 
+## Design Goals
+- 1:1 translation of intent from function source code to cli usage
+    - function parameters = cli flags & arguments
+    - function return values = stdout content or auto-handled error messaging (stderr)
+    - code comments normally used to clarify code usage is also used for cli documentation (not implemented)
+    - 1st io.Reader func param interpreted as stdin
+    - instead of having to ask "how do I implement X behavior in a CLI library?" ask "how would I do this for a normal go function?"
+- Don't use struct field tags to define cli behavior
+- Precise control over what go code is interpreted as a CLI (currently via go generate directive comment)
+
 ## Learnings and next steps
 
 - It's possible to auto-create a CLI with a function as a template.
@@ -32,3 +42,5 @@ go build -o greet .
     - add customization options
     - custom documentation via code comments
 - Try alternate implementation that relies more heavily on reflection rather than code generation to implement the CLI (to perhaps make the CLI implementation wrapping more transparent/not obscure the actual CLI model template)
+
+See https://github.com/buchanae/cli for a more complete library along the same lines. That project provided some useful examples to guide my implementation.
