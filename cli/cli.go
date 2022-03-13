@@ -17,12 +17,12 @@ type Spec struct {
 }
 
 func (s Spec) FlagArgSpec(name string) (v Value, exists bool) {
-	for _, a := range s.Params {
-		if strings.EqualFold(a.Name, name) {
-			return v, true
+	for _, p := range s.Params {
+		if strings.EqualFold(p.Name, name) {
+			return p, true
 		}
 	}
-	return v, false
+	return
 }
 
 // OrderedArgSpec returns the specification for an ordered argument (0 based index)
@@ -48,7 +48,7 @@ type Inputs struct {
 
 func (i Inputs) AddArg(name string, value string, t ValueType) error {
 	if vPrev, ok := i.Named[name]; ok {
-		return errors.Errorf("argument %q has been provided more than one time: %q, %q", vPrev, value)
+		return errors.Errorf("argument %q has been provided more than one time: %q, %q", name, vPrev, value)
 	}
 
 	// coerce value to type
@@ -79,10 +79,14 @@ func New(s Spec) CLI {
 	}
 }
 
-func (cli CLI) Exec() error {
+func (cli CLI) ExecOSArgs() error {
+	return cli.ExecArgs(os.Args)
+}
+
+func (cli CLI) ExecArgs(args []string) error {
 	unparsedArgs := []string{}
-	if len(os.Args) > 1 {
-		unparsedArgs = os.Args[1:]
+	if len(args) > 1 {
+		unparsedArgs = args[1:]
 	}
 
 	// parse args
@@ -108,24 +112,34 @@ func (cli CLI) Exec() error {
 }
 
 func writeToStdout(output interface{}) error {
+	if output == nil {
+		return nil
+	}
+
 	r, err := anyToReader(output)
 	if err != nil {
 		return err
 	}
-	
+
 	_, err = io.Copy(os.Stdout, r)
 
 	return err
 }
 
 func anyToReader(i interface{}) (io.Reader, error) {
+	if r, ok := i.(io.Reader); ok {
+		return r, nil
+	}
+
 	switch v := i.(type) {
 	case string:
 		return strings.NewReader(v), nil
 	case int, int8, int16, int32, int64:
 		return strings.NewReader(fmt.Sprintf("%d", v)), nil
-	case float32, float64:
-		return strings.NewReader(fmt.Sprintf("%f", v)), nil
+	case float32:
+		return strings.NewReader(strconv.FormatFloat(float64(v), 'f', -1, 32)), nil
+	case float64:
+		return strings.NewReader(strconv.FormatFloat(v, 'f', -1, 64)), nil
 	case bool:
 		return strings.NewReader(strconv.FormatBool(v)), nil
 	default:
@@ -181,6 +195,20 @@ func validateAndTypeArgs(args []ParsedArg, spec Spec) (i Inputs, err error) {
 			return
 		}
 	}
+
+	// add missing bool params (as false)
+	for _, p := range spec.Params {
+		if p.TypeName != ValueTypeBool {
+			continue
+		}
+
+		if _, exists := i.Named[p.Name]; exists {
+			continue
+		}
+
+		i.Named[p.Name] = false
+	}
+
 	return
 }
 
@@ -193,10 +221,26 @@ func stringToType(s string, t ValueType) (interface{}, error) {
 		return s, nil
 	case ValueTypeInt:
 		return strconv.Atoi(s)
-	case ValueTypeFloat:
-		return strconv.ParseFloat(s, 64)
+	case ValueTypeInt8:
+		i, err := strconv.ParseInt(s, 10, 8)
+		return int8(i), err
+	case ValueTypeInt16:
+		i, err := strconv.ParseInt(s, 10, 16)
+		return int16(i), err
+	case ValueTypeInt32:
+		i, err := strconv.ParseInt(s, 10, 32)
+		return int32(i), err
+	case ValueTypeInt64:
+		i, err := strconv.ParseInt(s, 10, 64)
+		return int64(i), err
+	case ValueTypeFloat32:
+		f, err := strconv.ParseFloat(s, 32)
+		return float32(f), err
+	case ValueTypeFloat64:
+		f, err := strconv.ParseFloat(s, 64)
+		return float64(f), err
 	default:
-		return nil, errors.Errorf("no support for parsing arg type %q yet", t)
+		return nil, errors.Errorf("no support for parsing arg type %q yet\n", t)
 	}
 }
 
@@ -221,10 +265,6 @@ func (cli CLI) ParseArgs(unparsedArgs []string) (args []ParsedArg, err error) {
 
 		// add spec to arg
 		a.Spec, _ = cli.Spec.FlagArgSpec(a.Name)
-		// if !ok {
-		// 	return args, errors.Errorf("%q is not a valid flag\n", a.Name)
-		// }
-		// a.Spec = argSpec
 
 		// complete missing flag values
 		if len(args) > 0 && !flagsTerminated {
@@ -243,10 +283,15 @@ func (cli CLI) ParseArgs(unparsedArgs []string) (args []ParsedArg, err error) {
 type ValueType string
 
 const (
-	ValueTypeBool   ValueType = "bool"
-	ValueTypeString ValueType = "string"
-	ValueTypeInt    ValueType = "int"
-	ValueTypeFloat  ValueType = "float"
+	ValueTypeBool    ValueType = "bool"
+	ValueTypeString  ValueType = "string"
+	ValueTypeInt     ValueType = "int"
+	ValueTypeInt8    ValueType = "int8"
+	ValueTypeInt16   ValueType = "int16"
+	ValueTypeInt32   ValueType = "int32"
+	ValueTypeInt64   ValueType = "int64"
+	ValueTypeFloat32 ValueType = "float32"
+	ValueTypeFloat64 ValueType = "float64"
 
 	// how to implement this?
 	ValueTypeReader ValueType = "reader"

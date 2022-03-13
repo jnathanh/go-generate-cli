@@ -12,7 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"text/template"
 
 	"github.com/jnathanh/go-cli-generator/cli"
@@ -20,7 +22,14 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func Exec() error {
+type ExecOptions struct {
+	Path string
+}
+
+func Exec(o ExecOptions) error {
+	if o.Path == "" {
+		o.Path = "main.go"
+	}
 	flag.Parse()
 
 	fmt.Println("Generating CLI")
@@ -57,7 +66,7 @@ func Exec() error {
 	packageName := os.Getenv("GOPACKAGE")
 	sourceFile := path.Join(cwd, os.Getenv("GOFILE"))
 
-	cfg := &packages.Config{Mode: mode}
+	cfg := &packages.Config{Mode: mode, Tests: true}
 	pkgs, err := packages.Load(cfg, flag.Args()...)
 	if err != nil {
 		return errors.WithStack(err)
@@ -80,27 +89,14 @@ func Exec() error {
 		return errors.New("could not find tokenized file")
 	}
 
-	var handlerCode string
-	var spec cli.Spec
-	for _, d := range fileSyntax.Decls {
-		f, ok := d.(*ast.FuncDecl)
-		if !ok {
-			continue
-		}
-
-		startLine := tokenizedFile.Line(f.Doc.Pos())
-		endLine := tokenizedFile.Line(f.Doc.End())
-
-		if goGenerateLineNumber < startLine || goGenerateLineNumber > endLine {
-			continue
-		}
-
-		handlerCode, spec, err = FuncToHandlerAndSpec(f)
-		if err != nil {
-			return err
-		}
-
-		break
+	decl, err := funcDecl(fileSyntax.Decls, tokenizedFile, goGenerateLineNumber)
+	if err != nil {
+		return err
+	}
+	
+	handlerCode, spec, pkgPaths, err := FuncToHandlerAndSpec(decl, targetPkg)
+	if err != nil {
+		return err
 	}
 
 	cliTemplate := `package main
@@ -109,7 +105,9 @@ import (
 	"os"
 	"fmt"
 	"github.com/jnathanh/go-cli-generator/cli"
-	"github.com/jnathanh/go-cli-generator/test/func/climodel"
+	{{ range .PkgPaths }}
+		{{ if . }}"{{ . }}"{{ end }}
+	{{ end }}
 )
 
 func main() {
@@ -119,29 +117,46 @@ func main() {
 
 	cli := cli.New(spec)
 
-	err := cli.Exec()
+	err := cli.ExecOSArgs()
 	if err != nil {
-		fmt.Fprint(os.Stderr, err)
+		fmt.Fprintf(os.Stderr, "%+v", err)
 		os.Exit(1)
 	}
 }
 `
 
 	type TemplateArgs struct {
-		Spec    string
-		Handler string
+		Spec     string
+		Handler  string
+		PkgPaths []string
 	}
-	templateArgs := TemplateArgs{Spec: fmt.Sprintf("%#v", spec), Handler: handlerCode}
+
+	templateArgs := TemplateArgs{
+		Spec:     fmt.Sprintf("%#v", spec),
+		Handler:  handlerCode,
+		PkgPaths: pkgPaths,
+	}
+
 	tmpl, err := template.New("test").Parse(cliTemplate)
 	if err != nil {
 		return errors.WithStack(err)
 	}
 
-	cmdDirPath := path.Join(cwd, "..")
-	mainPath := path.Clean(path.Join(cmdDirPath, "main.go"))
+	p, err := filepath.Abs(o.Path)
+	if err != nil {
+		return err
+	}
 
-	fmt.Println("creating ", mainPath)
-	f, err := os.Create(mainPath)
+	cmdDirPath, _ := path.Split(p)
+	// cmdDirPath := path.Join(cwd, "..")
+	// mainPath := path.Clean(path.Join(cmdDirPath, "main.go"))
+
+	if strings.TrimSuffix(cmdDirPath, "/") != cwd {
+		templateArgs.PkgPaths = append(templateArgs.PkgPaths, targetPkg.PkgPath)
+	}
+
+	fmt.Println("creating ", p)
+	f, err := os.Create(p)
 	if err != nil {
 		return errors.WithStack(err)
 	}
@@ -170,70 +185,150 @@ func main() {
 
 	fmt.Println("building to test for errors")
 	outputPath := path.Join(cmdDirPath, "main")
-	cmd := exec.Command("go", "build", "-o", outputPath, mainPath)
-	stderr := bytes.NewBuffer([]byte{})
-	cmd.Stderr = stderr
-	out, err := cmd.Output()
+	cmd := exec.Command("go", "build", "-o", outputPath, cmdDirPath)
+	fmt.Println(cmd.String())
+	out, err := cmd.CombinedOutput()
 	os.Remove(outputPath)
 	fmt.Println(string(out))
-	fmt.Println(stderr)
 
 	// _, err = io.WriteString(f, handlerCode)
 	return errors.WithStack(err)
 }
 
-func FuncToHandlerAndSpec(f *ast.FuncDecl) (handlerCode string, s cli.Spec, err error) {
+func funcDecl(decls []ast.Decl, tokenizedFile *token.File, goGenerateLineNumber int) (*ast.FuncDecl, error) {
+	for _, d := range decls {
+		f, ok := d.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+
+		startLine := tokenizedFile.Line(f.Doc.Pos())
+		endLine := tokenizedFile.Line(f.Doc.End())
+
+		if goGenerateLineNumber < startLine || goGenerateLineNumber > endLine {
+			continue
+		}
+
+		return f, nil
+	}
+	return nil, errors.Errorf("unable to find function declaration with comment lines on line %d in file %q", goGenerateLineNumber, tokenizedFile.Name())
+}
+
+type Type struct {
+	TypeName    string
+	PackageName string
+	PackagePath string
+}
+
+func (t *Type) IsReader() bool {
+	return t.PackagePath == "io" && t.TypeName == "Reader"
+}
+
+type valueAttrs struct {
+	Name string
+	Type
+}	
+
+func fieldType(f *ast.Field, pkg *packages.Package) (t Type, err error) {
+	switch v := f.Type.(type) {
+	case *ast.SelectorExpr:
+		t.TypeName = v.Sel.Name
+		t.PackageName = v.X.(*ast.Ident).Name
+
+		p, ok := pkg.Imports[t.PackageName]
+		if !ok {
+			return t, errors.Errorf("cannot find import for %s.%s in package %s", t.PackageName, t.TypeName, pkg.Name)
+		}
+		t.PackagePath = p.PkgPath
+	case *ast.Ident:
+		t.TypeName = v.Name
+	default:
+		err = errors.Errorf("unhandled func param type: %T", f.Type)
+	}
+	return
+}
+
+func FuncToHandlerAndSpec(f *ast.FuncDecl, pkg *packages.Package) (handlerCode string, s cli.Spec, pkgPaths []string, err error) {
+	type tmplArgs struct {
+		Params      []valueAttrs
+		Output      valueAttrs
+		HandlerName string
+		HandlerPkg  string
+	}
+
+	args := tmplArgs{
+		HandlerName: f.Name.Name,
+		HandlerPkg:  pkg.Name,
+	}
+
+	pkgMap := map[string]bool{}
+
 	// add func params as cli params
 	for _, p := range f.Type.Params.List {
-		t := cli.ValueType(p.Type.(*ast.Ident).Name)
-		s.Params = append(s.Params, cli.Value{
-			Name:     p.Names[0].Name,
-			TypeName: t,
-			Ordered:  (t != cli.ValueTypeBool),
-		})
+		t, err := fieldType(p, pkg)
+		if err != nil {
+			return "", s, pkgPaths, err
+		}
+
+		if !t.IsReader() { // this is interpreted as os.Stdin, and "os" is already imported
+			pkgMap[t.PackagePath] = true
+		}
+
+		for _, n := range p.Names {
+			args.Params = append(args.Params, valueAttrs{
+				Name: n.Name,
+				Type: t,
+			})
+
+			s.Params = append(s.Params, cli.Value{
+				Name:     n.Name,
+				TypeName: cli.ValueType(t.TypeName),
+				Ordered:  (cli.ValueType(t.TypeName) != cli.ValueTypeBool),
+			})
+		}
 	}
 
 	// add the first return value as a cli output
 	if len(f.Type.Results.List) > 0 {
+
 		r := f.Type.Results.List[0]
+
+		t, err := fieldType(r, pkg)
+		if err != nil {
+			return "", s, pkgPaths, err
+		}
+
+		args.Output = valueAttrs{Name: r.Names[0].Name, Type: t}
 		s.Output = cli.Value{
 			Name:     r.Names[0].Name,
-			TypeName: cli.ValueType(r.Type.(*ast.Ident).Name),
+			TypeName: cli.ValueType(t.TypeName),
 		}
 	}
 
-	type tmplArgs struct {
-		Params []cli.Value
-		Output cli.Value
-		HandlerName string
-	}
 	// take interface types and type cast
 	funcTmpl := `func (inputs cli.Inputs) (output interface{}, err error) {
 
-		// declare typed params
 		{{ range .Params }}
-			{{ .Name }} := inputs.Named["{{ .Name }}"].({{ .TypeName }})
+			{{ if not .IsReader}}{{ .Name }} := inputs.Named["{{ .Name }}"].({{ if .PackageName }}{{ .PackageName }}.{{ end }}{{ .TypeName }}){{ end }}
 		{{ end }}
 
-		// call model handler with typed params
-		{{ .Output.Name }} := climodel.{{ .HandlerName }}({{ range .Params }}{{ .Name }}{{ end }})
+		{{ .Output.Name }} := {{ if ne .HandlerPkg "main" }}{{ .HandlerPkg }}.{{ end }}{{ .HandlerName }}({{ range $i, $p := .Params }}{{ if $i }} ,{{ end }}{{ if $p.IsReader }}os.Stdin{{ else }}{{ $p.Name }}{{ end }}{{ end }})
 
-		// return model handler result
 		return {{ .Output.Name }}, nil
 	}`
-		
+
 	tmpl, err := template.New("test").Parse(funcTmpl)
 	if err != nil {
 		err = errors.WithStack(err)
 		return
 	}
 	b := bytes.NewBuffer([]byte{})
-	err = errors.WithStack(tmpl.Execute(b, tmplArgs{
-		Params: s.Params,
-		Output: s.Output,
-		HandlerName: f.Name.Name,
-	}))
+	err = errors.WithStack(tmpl.Execute(b, args))
 	handlerCode = b.String()
+
+	for k, _ := range pkgMap {
+		pkgPaths = append(pkgPaths, k)
+	}
 
 	return
 }
@@ -251,23 +346,28 @@ func GetTokenizedFile(path string, fileSet *token.FileSet) (file *token.File) {
 
 func GetFileAST(packageName, filePath string, pkgs []*packages.Package) (fileSyntax *ast.File, targetPkg *packages.Package, err error) {
 	// first find package
+	var packagesWithMatchingName []*packages.Package
 	for _, pkg := range pkgs {
 		if pkg.Name != packageName {
 			continue
 		}
-		targetPkg = pkg
+
+		packagesWithMatchingName = append(packagesWithMatchingName, pkg)
+		// targetPkg = pkg
 	}
 
-	if targetPkg == nil {
+	if len(packagesWithMatchingName) == 0 {
 		return nil, nil, errors.Errorf("could not find package %q", packageName)
 	}
 
 	// then find file ast
-	for i, path := range targetPkg.CompiledGoFiles {
-		if path != filePath {
-			continue
+	for _, pkg := range packagesWithMatchingName {
+		for i, path := range pkg.CompiledGoFiles {
+			if path != filePath {
+				continue
+			}
+			return pkg.Syntax[i], pkg, nil
 		}
-		return targetPkg.Syntax[i], targetPkg, nil
 	}
 
 	return nil, targetPkg, errors.Errorf("found package %q, but did not find %q within it", packageName, filePath)
