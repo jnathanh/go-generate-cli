@@ -10,7 +10,7 @@ func Greet(name string) (greeting string) {
 	return "hello " + name + "\n"
 }
 ```
-
+Warning, this currently overwrites the entire main.go file, so make sure your other code is files not by that name.
 ```sh
 # in the same package folder as the Greet function (or from a parent folder with ./... arg)
 go generate
@@ -18,6 +18,7 @@ go build -o greet .
 ./greet John
 # outputs "hello John"
 ```
+
 
 ## Design Goals
 - 1:1 translation of intent from function source code to cli usage
