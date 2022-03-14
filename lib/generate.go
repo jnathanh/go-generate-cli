@@ -201,6 +201,10 @@ func funcDecl(decls []ast.Decl, tokenizedFile *token.File, goGenerateLineNumber 
 			continue
 		}
 
+		if f.Doc == nil {
+			continue
+		}
+
 		startLine := tokenizedFile.Line(f.Doc.Pos())
 		endLine := tokenizedFile.Line(f.Doc.End())
 
