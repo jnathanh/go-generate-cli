@@ -103,7 +103,7 @@ func Exec(o ExecOptions) error {
 import (
 	"os"
 	"fmt"
-	"github.com/jnathanh/go-cli"
+	cli "github.com/jnathanh/go-cli"
 	{{ range .PkgPaths }}
 		{{ if . }}"{{ . }}"{{ end }}
 	{{ end }}
