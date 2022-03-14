@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testCLIFor(generateTag string, args []string, expectedOutput string, stdin io.Reader, debug bool) func(*testing.T) {
+func testCLIFor(generateTag string, c Case) func(*testing.T) {
 	return func(t *testing.T) {
-		if !debug {
+		if !c.Debug {
 			t.Cleanup(func() {
-				if !debug && !t.Failed() {
+				if !c.Debug && !t.Failed() {
 					// note that you may have to manually delete this file if it outputs invalid code before tests will run again (compile errors)
 					os.Remove("main.go")
 				}
@@ -25,7 +25,7 @@ func testCLIFor(generateTag string, args []string, expectedOutput string, stdin 
 		}
 
 		// trigger generate
-		if !debug {
+		if !c.Debug {
 			cmd := exec.Command("go", "generate", "-x", fmt.Sprintf("-run=%s", generateTag), ".")
 			out, err := cmd.CombinedOutput()
 			t.Cleanup(func() {
@@ -38,8 +38,15 @@ func testCLIFor(generateTag string, args []string, expectedOutput string, stdin 
 			require.NoError(t, lib.Exec(lib.ExecOptions{Path: "main.go"}))
 		}
 
-		AssertCLIOutput(t, stdin, append([]string{"go", "run", "."}, args...), expectedOutput)
+		AssertCLIOutput(t, c.Stdin, append([]string{"go", "run", "."}, c.Args...), c.ExpectOut)
 	}
+}
+
+type Case struct {
+	Stdin     io.Reader
+	Args      []string
+	ExpectOut string
+	Debug     bool
 }
 
 func TestGenerateCLIFromFunction(t *testing.T) {
@@ -50,26 +57,27 @@ func TestGenerateCLIFromFunction(t *testing.T) {
 		"GOARCH":    "arm64",
 		"GOOS":      "darwin",
 		"GOFILE":    "func.go",
-		"GOLINE":    "61",
+		"GOLINE":    "71",
 		"GOPACKAGE": "main",
 		"DOLLAR":    "$",
 	} {
 		require.NoError(t, os.Setenv(k, v))
 	}
 
-	t.Run("Greet", testCLIFor("Greet", []string{"Mr"}, "hello Mr\n", nil, false))
-	t.Run("Dismiss", testCLIFor("Dismiss", []string{"Mr"}, "goodbye Mr\n", nil, false))
-	t.Run("AddInts", testCLIFor("AddInts", []string{"1", "2"}, "3", nil, false))
-	t.Run("AddInt8", testCLIFor("AddInt8", []string{"1", "2"}, "3", nil, false))
-	t.Run("AddInt16", testCLIFor("AddInt16", []string{"1", "2"}, "3", nil, false))
-	t.Run("AddInt32", testCLIFor("AddInt32", []string{"1", "2"}, "3", nil, false))
-	t.Run("AddInt64", testCLIFor("AddInt64", []string{"1", "2"}, "3", nil, false))
-	t.Run("EchoFloat32", testCLIFor("EchoFloat32", []string{"1.1"}, "1.1", nil, false))
-	t.Run("EchoFloat64", testCLIFor("EchoFloat64", []string{"1.1"}, "1.1", nil, false))
-	t.Run("BoolFlag", testCLIFor("BoolFlag", []string{"-on"}, "on", nil, false))
-	t.Run("BoolFlag", testCLIFor("BoolFlag", []string{"--on"}, "on", nil, false))
-	t.Run("BoolFlag", testCLIFor("BoolFlag", []string{}, "off", nil, false))
-	t.Run("StdInOut", testCLIFor("StdInOut", nil, "ABC", strings.NewReader("abc"), false))
+	t.Run("Greet", testCLIFor("Greet", Case{Args: []string{"Mr"}, ExpectOut: "hello Mr\n"}))
+	t.Run("Dismiss", testCLIFor("Dismiss", Case{Args: []string{"Mr"}, ExpectOut: "goodbye Mr\n"}))
+	t.Run("AddInts", testCLIFor("AddInts", Case{Args: []string{"1", "2"}, ExpectOut: "3"}))
+	t.Run("AddInt8", testCLIFor("AddInt8", Case{Args: []string{"1", "2"}, ExpectOut: "3"}))
+	t.Run("AddInt16", testCLIFor("AddInt16", Case{Args: []string{"1", "2"}, ExpectOut: "3"}))
+	t.Run("AddInt32", testCLIFor("AddInt32", Case{Args: []string{"1", "2"}, ExpectOut: "3"}))
+	t.Run("AddInt64", testCLIFor("AddInt64", Case{Args: []string{"1", "2"}, ExpectOut: "3"}))
+	t.Run("EchoFloat32", testCLIFor("EchoFloat32", Case{Args: []string{"1.1"}, ExpectOut: "1.1"}))
+	t.Run("EchoFloat64", testCLIFor("EchoFloat64", Case{Args: []string{"1.1"}, ExpectOut: "1.1"}))
+	t.Run("BoolFlag", testCLIFor("BoolFlag", Case{Args: []string{"-on"}, ExpectOut: "on"}))
+	t.Run("BoolFlag", testCLIFor("BoolFlag", Case{Args: []string{"--on"}, ExpectOut: "on"}))
+	t.Run("BoolFlag", testCLIFor("BoolFlag", Case{Args: []string{}, ExpectOut: "off"}))
+	t.Run("StdInOut", testCLIFor("StdInOut", Case{Stdin: strings.NewReader("abc"), ExpectOut: "ABC"}))
+	t.Run("NoInputsOrOutputs", testCLIFor("NoInputsOrOutputs", Case{}))
 }
 
 func AssertCLIOutput(t *testing.T, stdin io.Reader, cmd []string, expectedOutput string) {

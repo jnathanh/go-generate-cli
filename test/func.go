@@ -67,3 +67,6 @@ func StdInOut(in io.Reader) (out io.Reader) {
 
 	return bytes.NewReader(bytes.ToUpper(b))
 }
+
+//go:generate go run ../main.go -testsignature=NoInputsOrOutputs
+func NoInputsOrOutputs() {}

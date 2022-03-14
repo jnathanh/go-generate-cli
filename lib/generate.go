@@ -154,12 +154,6 @@ func main() {
 		templateArgs.PkgPaths = append(templateArgs.PkgPaths, targetPkg.PkgPath)
 	}
 
-	fmt.Println("creating ", p)
-	f, err := os.Create(p)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
 	buf := bytes.NewBuffer([]byte{})
 
 	err = tmpl.Execute(buf, templateArgs)
@@ -170,6 +164,12 @@ func main() {
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
 		fmt.Println("generated code:\n", buf.String())
+		return errors.WithStack(err)
+	}
+
+	fmt.Println("creating ", p)
+	f, err := os.Create(p)
+	if err != nil {
 		return errors.WithStack(err)
 	}
 
@@ -288,7 +288,7 @@ func FuncToHandlerAndSpec(f *ast.FuncDecl, pkg *packages.Package) (handlerCode s
 	}
 
 	// add the first return value as a cli output
-	if len(f.Type.Results.List) > 0 {
+	if f.Type.Results != nil && len(f.Type.Results.List) > 0 {
 
 		r := f.Type.Results.List[0]
 
@@ -311,9 +311,9 @@ func FuncToHandlerAndSpec(f *ast.FuncDecl, pkg *packages.Package) (handlerCode s
 			{{ if not .IsReader}}{{ .Name }} := inputs.Named["{{ .Name }}"].({{ if .PackageName }}{{ .PackageName }}.{{ end }}{{ .TypeName }}){{ end }}
 		{{ end }}
 
-		{{ .Output.Name }} := {{ if ne .HandlerPkg "main" }}{{ .HandlerPkg }}.{{ end }}{{ .HandlerName }}({{ range $i, $p := .Params }}{{ if $i }} ,{{ end }}{{ if $p.IsReader }}os.Stdin{{ else }}{{ $p.Name }}{{ end }}{{ end }})
+		{{ if .Output.Name }}{{ .Output.Name }} := {{ end }}{{ if ne .HandlerPkg "main" }}{{ .HandlerPkg }}.{{ end }}{{ .HandlerName }}({{ range $i, $p := .Params }}{{ if $i }} ,{{ end }}{{ if $p.IsReader }}os.Stdin{{ else }}{{ $p.Name }}{{ end }}{{ end }})
 
-		return {{ .Output.Name }}, nil
+		return {{ if .Output.Name }}{{ .Output.Name }}{{ else }}nil{{ end }}, nil
 	}`
 
 	tmpl, err := template.New("test").Parse(funcTmpl)
